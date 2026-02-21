@@ -43,38 +43,38 @@ The app extracts the JSON object assigned to `const data`, then reads:
 ### Saturation model
 The fitted curve is:
 
-\[
+$$
 s(R) = \frac{R}{R + a}
-\]
+$$
 
 where:
-- \(R\) = reads per cell
-- \(s\) = sequencing saturation in \([0,1]\)
-- \(a\) = fitted half-saturation parameter
+- $R$ = reads per cell
+- $s$ = sequencing saturation in $[0,1]$
+- $a$ = fitted half-saturation parameter
 
 Inverse form used for predictions:
 
-\[
-R = \frac{a\,s}{1-s}
-\]
+$$
+R = \frac{a s}{1-s}
+$$
 
 ### UMI model
 The fitted curve is:
 
-\[
+$$
 U(R) = \frac{bR}{R+a}
-\]
+$$
 
 where:
-- \(U\) = UMIs per cell
-- \(a\) = half-saturation-style parameter
-- \(b\) = fitted maximum UMI asymptote
+- $U$ = UMIs per cell
+- $a$ = half-saturation-style parameter
+- $b$ = fitted maximum UMI asymptote
 
 Inverse form used for predictions:
 
-\[
+$$
 R = \frac{aU}{b-U}
-\]
+$$
 
 ## Run Locally
 
@@ -110,7 +110,7 @@ Open the URL printed in your terminal.
 
 - Fits require enough subsampled points; sparse files may show unavailable models.
 - Saturation targets must be below 100%.
-- UMI inverse prediction is undefined at or above fitted max \(b\).
+- UMI inverse prediction is undefined at or above fitted max $b$.
 - This is a lightweight heuristic fit for planning/exploration, not a replacement for full pipeline QC analysis.
 
 ## License
