@@ -1,110 +1,118 @@
-## Mathematical Background
-### Halfsat using lander-waterman modeling
+# HalfSat Explorer
 
-From Picard tools, we have the Lander-Waterman equation as follows:
+HalfSat Explorer is a static browser app for exploring sequencing depth tradeoffs from 10x outputs.
 
-$$
-\begin{equation} \frac{C}{X} = 1 - e^\frac{-N}{X} \end{equation} \qquad (1)
-$$
+It loads a local `web_summary.html` or `metrics_summary.json`, fits simple saturation/UMI curves, and predicts:
+- Saturation and UMIs at a target reads-per-cell
+- Required reads-per-cell for a target UMIs-per-cell
+- Required reads-per-cell for a target saturation
 
-where
+No backend is required. Data stays local in your browser.
 
-$X = number \enspace of \enspace distinct \enspace molecules \enspace in \enspace library$
+## Features
 
-$N = number \enspace  of \enspace  read \enspace  pairs$
+- File upload UI for local 10x summary files
+- Automatic parsing of:
+  - `metrics_summary.json`
+  - `web_summary.html` / `.htm` (extracts embedded `const data` payload)
+- Two fitted models:
+  - Sequencing saturation: Michaelis-Menten style one-parameter fit
+  - UMIs per cell: two-parameter saturating fit
+- Interactive prediction panel for forward and inverse calculations
+- Canvas plots for raw points plus fitted curves
 
-$C = number\enspace of\enspace distinct\enspace fragments\enspace observed\enspace in\enspace read\enspace pairs$
+## Supported Inputs
 
-From 10x genomics’ webpage, sequencing saturation is calculated as 
+### `metrics_summary.json`
+The app reads fields such as:
+- `sample_id`
+- `reads_per_cell`
+- per-depth subsampling keys (for example `raw_rpc_<N>_subsampled_...`)
+- saturation-like metrics (`sequencing_saturation`, `duplication_frac`, `percent_duplicates`)
+- median UMI/count metrics (`filtered_bcs_median_counts`, subsampled variants)
 
-$s = 1 - \frac{n\textunderscore deduped\textunderscore reads}{n\textunderscore reads}$ where $s$ is the sequencing saturation, $n\textunderscore deduped\textunderscore reads$ is the number of unique (valid cell-barcode, valid-UMI, gene) combinations among confidently mapped reads, and $n\textunderscore reads$ is the total number of confidently mapped, valid cell-barcode, valid-UMI reads.
+### `web_summary.html`
+The app extracts the JSON object assigned to `const data`, then reads:
+- sample ID
+- sequencing summary table values
+- analysis tab saturation plot points
+- cell summary table values
 
-Using notation from the Lander-Waterman equation, we can rewrite the sequencing saturation equation as follows:
+## Modeling
 
-$$
-\begin{equation}
-s = 1 - \frac{C}{N} \qquad (2)
-\end{equation}
-$$
+### Saturation model
+The fitted curve is:
 
-Our goal is to fit a model to predict sequencing saturation $s$ as a function of read pairs $N$ and number of distinct molecules in library $X$, optimizing for $X$.
+\[
+s(R) = \frac{R}{R + a}
+\]
 
-In other words, $s = f(N)$. 
+where:
+- \(R\) = reads per cell
+- \(s\) = sequencing saturation in \([0,1]\)
+- \(a\) = fitted half-saturation parameter
 
-We can rewrite equation (2) as $C = (1-s)*N$ and use systems of equations to solve for $s$.
+Inverse form used for predictions:
 
-$$
-\frac{(1-s)*N}{X} = 1-e^\frac{-N}{X}
-$$
+\[
+R = \frac{a\,s}{1-s}
+\]
 
-$$
-\begin{equation}
-s = 1-\frac{(1-e^\frac{-N}{X})*X}{N} \qquad (3)
-\end{equation}
-$$
+### UMI model
+The fitted curve is:
 
-where $s$ is a function of read pairs $N$.
+\[
+U(R) = \frac{bR}{R+a}
+\]
 
-From here, we can create a plot of sequencing saturation versus mean reads per cell (total reads divided by the number of cells). In order to find the half saturation point, we must use a root-finding algorithm such as Brent’s method to obtain a number $N$ such that $f(N) = 0.5$
+where:
+- \(U\) = UMIs per cell
+- \(a\) = half-saturation-style parameter
+- \(b\) = fitted maximum UMI asymptote
 
-$$
-\begin{equation}
-s = 1-\frac{(1-e^\frac{-N}{X})*X}{N}-0.5 \qquad (4)
-\end{equation}
-$$
+Inverse form used for predictions:
 
- <br/><br/> 
-### Halfsat using michaelis-menten modeling
-The Michaelis-Menten equation is as follows:
+\[
+R = \frac{aU}{b-U}
+\]
 
-$$
-\begin{equation}
-v = \frac{\mathrm{d}[P]}{\mathrm{d}t} = V_{max}\frac{[S]}{K_M+[S]} \qquad (5)
-\end{equation}
-$$
+## Run Locally
 
-where
+Because browsers restrict local file/module behavior, serve the folder with a simple static server.
 
-$v = rate\enspace of\enspace product\enspace formation$
+### Option 1: Python
+```bash
+python3 -m http.server 8000
+```
+Open `http://localhost:8000`.
 
-$P = concentration\enspace of\enspace product$
+### Option 2: Node
+```bash
+npx serve .
+```
+Open the URL printed in your terminal.
 
-$S = concentration\enspace of\enspace substrate$
+## Project Structure
 
-$V_{max} = max\enspace rate\enspace achieved\enspace by\enspace system$
+- `index.html`: page layout and controls
+- `styles.css`: visual design and responsive layout
+- `app.js`: parsing, fitting, rendering, and predictions
 
-$K_M = michaelis\enspace constant$
+## How To Use
 
-When $K_M$ is  equivalent to the substrate concentration the reaction rate $v$ is half of $V_{max}$
+1. Open the app in your browser.
+2. Click **Choose local file** and select a 10x summary file.
+3. Confirm sample info and fit parameters appear.
+4. Enter one or more targets in **Interactive Targets**.
+5. Click **Run Predictions**.
 
-Analogously, we can model the following:
+## Notes and Limitations
 
-$$
-\begin{equation}
-s = S_{max}\frac{R}{K_M+R} \qquad (6)
-\end{equation}
-$$
+- Fits require enough subsampled points; sparse files may show unavailable models.
+- Saturation targets must be below 100%.
+- UMI inverse prediction is undefined at or above fitted max \(b\).
+- This is a lightweight heuristic fit for planning/exploration, not a replacement for full pipeline QC analysis.
 
-where
+## License
 
-$s = sequencing\enspace saturation\enspace [0,1]$
-
-$S_{max} = maximum\:sequencing\:saturation$
-
-$R = reads\enspace per\enspace cell$
-
-$K_M = michaelis\enspace constant$
-
-Since $S_{max}=1$, we can simplify equation (5)
-
-$$
-\begin{equation}
-s = \frac{R}{K_M+R} \qquad (7)
-\end{equation}
-$$
-
-We can also use the Michaelis-Menten equation (5) to model genes per cell and UMIs per cell.
-
-$s = median\enspace genes\enspace per\enspace cell$
-
-$s = median\enspace UMIs\enspace per\enspace cell$
+Add your preferred license in this repository (for example MIT).
