@@ -24,6 +24,8 @@
   const els = {
     fileInput: document.getElementById("fileInput"),
     status: document.getElementById("status"),
+    loadExampleWeb: document.getElementById("loadExampleWeb"),
+    loadExampleMetrics: document.getElementById("loadExampleMetrics"),
     sampleId: document.getElementById("sampleId"),
     sourceType: document.getElementById("sourceType"),
     currentCells: document.getElementById("currentCells"),
@@ -943,23 +945,25 @@
     els.results.innerHTML = out.join("");
   }
 
+  function parseLoadedText(text, fileName) {
+    if (fileName.toLowerCase().endsWith(".json")) {
+      return fromMetricsSummary(JSON.parse(text));
+    }
+    if (fileName.toLowerCase().endsWith(".html") || fileName.toLowerCase().endsWith(".htm")) {
+      return fromWebSummary(extractJsonFromWebSummary(text));
+    }
+    try {
+      return fromMetricsSummary(JSON.parse(text));
+    } catch (_jsonErr) {
+      return fromWebSummary(extractJsonFromWebSummary(text));
+    }
+  }
+
   async function handleFile(file) {
     els.status.textContent = `Reading ${file.name}...`;
     try {
       const text = await file.text();
-      let parsed;
-
-      if (file.name.toLowerCase().endsWith(".json")) {
-        parsed = fromMetricsSummary(JSON.parse(text));
-      } else if (file.name.toLowerCase().endsWith(".html") || file.name.toLowerCase().endsWith(".htm")) {
-        parsed = fromWebSummary(extractJsonFromWebSummary(text));
-      } else {
-        try {
-          parsed = fromMetricsSummary(JSON.parse(text));
-        } catch (_jsonErr) {
-          parsed = fromWebSummary(extractJsonFromWebSummary(text));
-        }
-      }
+      const parsed = parseLoadedText(text, file.name);
 
       setFromParsed(parsed);
       els.status.textContent = `Loaded ${file.name}`;
@@ -970,11 +974,41 @@
     }
   }
 
+  async function handleExampleLoad(examplePath, label) {
+    els.status.textContent = `Loading example ${label}...`;
+    try {
+      const resp = await fetch(examplePath, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} loading ${label}`);
+      const text = await resp.text();
+      const parsed = parseLoadedText(text, label);
+      setFromParsed(parsed);
+      els.status.textContent = `Loaded example ${label}`;
+      els.results.innerHTML = "";
+    } catch (err) {
+      els.status.textContent = "Unable to load example file.";
+      els.results.innerHTML = `<p>${String(err.message || err)}</p>`;
+    }
+  }
+
   els.fileInput.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     handleFile(file);
   });
+
+  if (els.loadExampleWeb) {
+    els.loadExampleWeb.addEventListener("click", () =>
+      handleExampleLoad("./test_files/Cellranger_9.0.0_3p_GEX/web_summary.html", "web_summary.html")
+    );
+  }
+  if (els.loadExampleMetrics) {
+    els.loadExampleMetrics.addEventListener("click", () =>
+      handleExampleLoad(
+        "./test_files/Cellranger_9.0.0_3p_GEX/metrics_summary_json.json",
+        "metrics_summary_json.json"
+      )
+    );
+  }
 
   function attachHover(canvas, getSeries, stateKey, getXZoomScale) {
     canvas.addEventListener("mousemove", (e) => {

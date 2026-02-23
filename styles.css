@@ -112,6 +112,18 @@ body {
   flex-wrap: wrap;
 }
 
+.example-loaders {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upload .action.secondary {
+  margin-top: 0;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+
 .model-explainer {
   margin-top: 16px;
 }
