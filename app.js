@@ -9,6 +9,7 @@
     currentUmis: null,
     currentSat: null,
     lowerMetricKind: "umi",
+    satModelType: "mm",
     satSeries: null,
     umiSeries: null,
     satFit: null,
@@ -36,6 +37,7 @@
     lowerFitLabelB: document.getElementById("lowerFitLabelB"),
     lowerPlotTitle: document.getElementById("lowerPlotTitle"),
     metricTargetLabel: document.getElementById("metricTargetLabel"),
+    satModelSelect: document.getElementById("satModelSelect"),
     satA: document.getElementById("satA"),
     umiA: document.getElementById("umiA"),
     umiB: document.getElementById("umiB"),
@@ -423,7 +425,7 @@
     return out;
   }
 
-  function fitSaturationCurve(series) {
+  function fitSaturationCurveMM(series) {
     if (!series || series.x.length < 2) return null;
     const x = series.x;
     const y = series.y.map((v) => Math.min(0.999999, Math.max(1e-6, v)));
@@ -447,10 +449,119 @@
     }
 
     return {
+      modelType: "mm",
       a,
+      halfSatReads: a,
       predict: (reads) => reads / (reads + a),
       readsForTargetSat: (sat) => (a * sat) / (1 - sat),
     };
+  }
+
+  function lwSaturationPredict(reads, xParam) {
+    if (!(Number.isFinite(reads) && Number.isFinite(xParam)) || reads <= 0 || xParam <= 0) return 0;
+    const term = (1 - Math.exp(-reads / xParam)) * (xParam / reads);
+    const sat = 1 - term;
+    return Math.max(0, Math.min(0.999999, sat));
+  }
+
+  function bisectionRoot(fn, lo, hi, maxIter = 80) {
+    let fLo = fn(lo);
+    let fHi = fn(hi);
+    if (!Number.isFinite(fLo) || !Number.isFinite(fHi) || fLo * fHi > 0) return null;
+    let a = lo;
+    let b = hi;
+    for (let i = 0; i < maxIter; i += 1) {
+      const mid = (a + b) / 2;
+      const fMid = fn(mid);
+      if (!Number.isFinite(fMid)) return null;
+      if (Math.abs(fMid) < 1e-8) return mid;
+      if (fLo * fMid <= 0) {
+        b = mid;
+        fHi = fMid;
+      } else {
+        a = mid;
+        fLo = fMid;
+      }
+    }
+    return (a + b) / 2;
+  }
+
+  function fitSaturationCurveLW(series) {
+    if (!series || series.x.length < 2) return null;
+    const x = series.x.filter((v) => Number.isFinite(v) && v > 0);
+    const y = series.y.map((v) => Math.min(0.999999, Math.max(1e-6, v)));
+    if (x.length < 2 || y.length < 2) return null;
+
+    const maxX = Math.max(...series.x);
+    const mmGuess = fitSaturationCurveMM(series);
+    const seed = Math.max(1, mmGuess?.a || maxX);
+
+    const lossForX = (xParam) => {
+      if (!(xParam > 0)) return Infinity;
+      let sse = 0;
+      for (let i = 0; i < series.x.length; i += 1) {
+        const pred = lwSaturationPredict(series.x[i], xParam);
+        const err = pred - y[i];
+        sse += err * err;
+      }
+      return sse / series.x.length;
+    };
+
+    // 1D search in log-space: coarse grid then local refinement.
+    let bestX = seed;
+    let bestLoss = lossForX(bestX);
+    const minX = Math.max(1e-3, seed / 200);
+    const maxSearchX = Math.max(maxX * 500, seed * 200, 10);
+    const logMin = Math.log(minX);
+    const logMax = Math.log(maxSearchX);
+    for (let i = 0; i <= 80; i += 1) {
+      const t = i / 80;
+      const cand = Math.exp(logMin + (logMax - logMin) * t);
+      const loss = lossForX(cand);
+      if (loss < bestLoss) {
+        bestLoss = loss;
+        bestX = cand;
+      }
+    }
+
+    let lo = bestX / 4;
+    let hi = bestX * 4;
+    for (let iter = 0; iter < 40; iter += 1) {
+      const m1 = lo + (hi - lo) / 3;
+      const m2 = hi - (hi - lo) / 3;
+      const l1 = lossForX(m1);
+      const l2 = lossForX(m2);
+      if (l1 < l2) hi = m2;
+      else lo = m1;
+    }
+    const xParam = (lo + hi) / 2;
+
+    const readsForTargetSat = (sat) => {
+      if (!(sat > 0 && sat < 1)) return null;
+      let upper = Math.max(1, xParam);
+      let fUpper = lwSaturationPredict(upper, xParam) - sat;
+      let guard = 0;
+      while (fUpper < 0 && guard < 80) {
+        upper *= 2;
+        fUpper = lwSaturationPredict(upper, xParam) - sat;
+        guard += 1;
+      }
+      if (fUpper < 0) return null;
+      return bisectionRoot((r) => lwSaturationPredict(r, xParam) - sat, 1e-9, upper);
+    };
+
+    return {
+      modelType: "lw",
+      xParam,
+      halfSatReads: readsForTargetSat(0.5),
+      predict: (reads) => lwSaturationPredict(reads, xParam),
+      readsForTargetSat,
+    };
+  }
+
+  function fitSaturationCurve(series, modelType) {
+    if (modelType === "lw") return fitSaturationCurveLW(series);
+    return fitSaturationCurveMM(series);
   }
 
   function linearRegression(xs, ys) {
@@ -759,7 +870,7 @@
     els.currentSat.textContent =
       state.currentSat !== null ? `${prettyNum(state.currentSat * 100, 2)}%` : "-";
 
-    els.satA.textContent = state.satFit ? prettyNum(state.satFit.a) : "-";
+    els.satA.textContent = state.satFit ? prettyNum(state.satFit.halfSatReads ?? state.satFit.a) : "-";
     els.umiA.textContent = state.umiFit ? prettyNum(state.umiFit.a) : "-";
     els.umiB.textContent = state.umiFit ? prettyNum(state.umiFit.b) : "-";
     if (els.lowerFitLabelA) {
@@ -772,17 +883,26 @@
     if (els.metricTargetLabel) els.metricTargetLabel.textContent = `${lowerMeta.plural} per cell`;
 
     const notes = [];
+    notes.push(
+      state.satModelType === "lw"
+        ? "Saturation model: Lander-Waterman-like saturating fit."
+        : "Saturation model: Michaelis-Menten-like (hyperbolic) fit."
+    );
+    if (state.satModelType === "lw") {
+      notes.push("UMI (gene) model: Michaelis-Menten-like hyperbolic fit.");
+    }
     if (!state.satFit) notes.push("Sequencing saturation fit unavailable from current file.");
     if (!state.umiFit) notes.push(`${lowerMeta.singular} fit unavailable from current file.`);
     if (state.lowerMetricKind === "gene" && state.umiFit) {
       notes.push("Using genes-per-cell downsampling fallback from web summary.");
     }
     if (notes.length === 0) notes.push("Fits computed successfully.");
-    els.fitNotes.textContent = notes.join(" ");
+    els.fitNotes.textContent = notes.join("\n");
 
-    const halfSatReads = state.satFit ? state.satFit.readsForTargetSat(0.5) : null;
-    const halfSatLowerY =
-      state.umiFit && Number.isFinite(halfSatReads) ? state.umiFit.predict(halfSatReads) : null;
+    const seqHalfSatReads = state.satFit ? state.satFit.readsForTargetSat(0.5) : null;
+    const lowerHalfSatReads = state.umiFit ? state.umiFit.a : null;
+    const lowerHalfSatY =
+      state.umiFit && Number.isFinite(lowerHalfSatReads) ? state.umiFit.predict(lowerHalfSatReads) : null;
 
     drawPlot(els.satCanvas, {
       x: state.satSeries?.x,
@@ -802,7 +922,7 @@
       hoverLineColor: "rgba(244, 114, 182, 0.6)",
       hoverPointColor: "#fdf2f8",
       hoverYFormatter: (y) => `Sat: ${prettyNum(y * 100, 1)}%`,
-      fixedCrosshairX: halfSatReads,
+      fixedCrosshairX: seqHalfSatReads,
       fixedCrosshairY: 0.5,
       fixedCrosshairLabel: "HalfSat",
       fixedCrosshairLineColor: "rgba(34, 211, 238, 0.28)",
@@ -832,8 +952,8 @@
       hoverPointColor: "#fef3c7",
       hoverYFormatter: (y) =>
         `${state.lowerMetricKind === "gene" ? "genes/cell" : "UMIs/cell"}: ${prettyNum(y)}`,
-      fixedCrosshairX: halfSatReads,
-      fixedCrosshairY: halfSatLowerY,
+      fixedCrosshairX: lowerHalfSatReads,
+      fixedCrosshairY: lowerHalfSatY,
       fixedCrosshairLabel: "HalfSat",
       fixedCrosshairLineColor: "rgba(250, 204, 21, 0.22)",
       fixedCrosshairPointColor: "rgba(250, 204, 21, 0.8)",
@@ -865,7 +985,7 @@
     state.lowerMetricKind = parsed.lowerMetricKind || "umi";
     state.satSeries = parsed.satSeries;
     state.umiSeries = parsed.umiSeries;
-    state.satFit = fitSaturationCurve(parsed.satSeries);
+    state.satFit = fitSaturationCurve(parsed.satSeries, state.satModelType);
     state.umiFit = fitUmiCurve(parsed.umiSeries);
     render();
   }
@@ -1008,6 +1128,15 @@
         "metrics_summary_json.json"
       )
     );
+  }
+
+  if (els.satModelSelect) {
+    els.satModelSelect.value = state.satModelType;
+    els.satModelSelect.addEventListener("change", () => {
+      state.satModelType = els.satModelSelect.value === "lw" ? "lw" : "mm";
+      state.satFit = fitSaturationCurve(state.satSeries, state.satModelType);
+      render();
+    });
   }
 
   function attachHover(canvas, getSeries, stateKey, getXZoomScale) {

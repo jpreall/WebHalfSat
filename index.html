@@ -32,15 +32,45 @@
             uses the fitted parameters to predict values at new read depths and to
             estimate the reads/cell needed to hit a target.
           </p>
+          <p class="note">
+            Two related saturation models are available for the sequencing
+            saturation curve. A <strong>Lander-Waterman-like</strong> fit is
+            more mechanistically tied to library complexity / duplicate
+            discovery, while a <strong>Michaelis-Menten-like</strong>
+            (hyperbolic) fit is a simpler approximation that is often very
+            stable and works well across the observed downsampling range.
+          </p>
+          <p class="note">
+            In this app, the <strong>model selector only affects the sequencing
+            saturation plot</strong>. The UMIs/genes curve remains a separate
+            Michaelis-Menten-like saturating fit because UMIs/genes-vs-reads are
+            typically better treated as empirical saturation curves than strict
+            Lander-Waterman coverage models.
+          </p>
           <div class="grid two">
             <div>
               <h3>Sequencing Saturation</h3>
-              <p class="equation">s(R) = R / (R + a)</p>
-              <p class="equation">R = (a · s) / (1 - s)</p>
+              <p class="equation">M-M-like: s(R) = R / (R + a)</p>
+              <p class="equation">M-M-like inverse: R = (a · s) / (1 - s)</p>
+              <p class="equation">L-W-like: s(R) = 1 - [(1 - e^(-R/X)) · X / R]</p>
+              <p class="equation">L-W-like target: solve s(R) = target for R (numerically)</p>
               <p class="note">
                 <strong>a</strong> is the half-saturation parameter (reads/cell at
                 which the curve reaches half of its maximum). The maximum
                 saturation is fixed at <strong>1.0</strong>.
+              </p>
+              <p class="note">
+                If you choose the Lander-Waterman-like model in the selector,
+                the left plot uses an alternative saturating form based on a
+                library-complexity-style model. The displayed “Sequencing
+                HalfSat Point” is still reported as the reads/cell value where
+                the fitted saturation reaches 50%.
+              </p>
+              <p class="note">
+                In the L-W-like form above, <strong>X</strong> is the fitted
+                library-complexity scale parameter. Because the inverse does not
+                have a simple closed form here, the app solves for target reads
+                numerically.
               </p>
             </div>
             <div>
@@ -52,6 +82,11 @@
                 <strong> b</strong> is the fitted maximum (asymptote). The lower
                 plot uses <strong>UMIs</strong> when available, and falls back to
                 <strong> genes</strong> for some web summary files.
+              </p>
+              <p class="note">
+                This lower curve keeps its own independent HalfSat point based on
+                the UMIs/genes fit. Changing the sequencing saturation model does
+                not change the UMIs/genes fit or its HalfSat marker.
               </p>
             </div>
           </div>
@@ -83,6 +118,13 @@
 
         <article class="panel">
           <h2>Model Fit</h2>
+          <label class="inline-select">
+            Sequencing Saturation Model (left plot only)
+            <select id="satModelSelect">
+              <option value="mm">Michaelis-Menten-like (hyperbolic)</option>
+              <option value="lw">Lander-Waterman-like</option>
+            </select>
+          </label>
           <dl class="meta">
             <div><dt>Sequencing HalfSat Point (reads/cell)</dt><dd id="satA">-</dd></div>
             <div><dt id="lowerFitLabelA">UMIs HalfSat Point (reads/cell)</dt><dd id="umiA">-</dd></div>
