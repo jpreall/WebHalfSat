@@ -4,6 +4,7 @@
   const state = {
     sampleId: null,
     sourceType: null,
+    currentCells: null,
     currentReads: null,
     currentUmis: null,
     currentSat: null,
@@ -25,6 +26,7 @@
     status: document.getElementById("status"),
     sampleId: document.getElementById("sampleId"),
     sourceType: document.getElementById("sourceType"),
+    currentCells: document.getElementById("currentCells"),
     currentReads: document.getElementById("currentReads"),
     currentUmis: document.getElementById("currentUmis"),
     currentSat: document.getElementById("currentSat"),
@@ -95,8 +97,19 @@
     };
   }
 
-  function collectFromMetricKeys(obj, keyRegex, valueTransform) {
-    const pairs = [];
+  function metricsKeyPreferenceScore(key) {
+    const lower = String(key).toLowerCase();
+    let score = 0;
+    if (lower.startsWith("multi_")) score += 100;
+    else if (lower.includes("_multi_")) score += 60;
+    if (lower.includes("raw_rpc_")) score += 25;
+    else if (lower.includes("raw")) score += 8;
+    if (lower.includes("conf_mapped") || lower.includes("mapped")) score -= 5;
+    return score;
+  }
+
+  function collectFromMetricKeys(obj, keyRegex, valueTransform, keyScoreFn) {
+    const byX = new Map();
     Object.keys(obj).forEach((key) => {
       const m = key.match(keyRegex);
       if (!m) return;
@@ -104,9 +117,11 @@
       let y = toNumber(obj[key]);
       if (!Number.isFinite(reads) || !Number.isFinite(y)) return;
       if (valueTransform) y = valueTransform(y);
-      pairs.push({ x: reads, y });
+      const score = typeof keyScoreFn === "function" ? keyScoreFn(key) : 0;
+      const prev = byX.get(reads);
+      if (!prev || score > prev.score) byX.set(reads, { x: reads, y, score, key });
     });
-    return pairedSeries(pairs);
+    return pairedSeries([...byX.values()].map(({ x, y }) => ({ x, y })));
   }
 
   function extractJsonFromWebSummary(htmlText) {
@@ -147,6 +162,103 @@
       }
     }
     throw new Error("Failed to parse JSON payload from web_summary HTML.");
+  }
+
+  function extractEstimatedCellsFromMetrics(obj) {
+    const exactKeys = [
+      "estimated_number_of_cells",
+      "estimated_cells",
+      "filtered_bcs",
+      "filtered_bcs_transcriptome_union",
+    ];
+    for (const key of exactKeys) {
+      const v = toNumber(obj[key]);
+      if (Number.isFinite(v) && v > 0) return v;
+    }
+
+    // Fall back to likely metric names while avoiding percentages/fractions.
+    for (const key of Object.keys(obj)) {
+      const lower = key.toLowerCase();
+      if (
+        (lower.includes("estimated") && lower.includes("cell")) ||
+        lower === "filtered_bcs" ||
+        lower === "filtered_bcs_transcriptome_union"
+      ) {
+        if (lower.includes("frac") || lower.includes("percent") || lower.includes("pct")) continue;
+        const v = toNumber(obj[key]);
+        if (Number.isFinite(v) && v > 0) return v;
+      }
+    }
+    return null;
+  }
+
+  function extractCurrentSaturationFromMetrics(obj, currentReads) {
+    const direct =
+      toNumber(obj.sequencing_saturation) ??
+      toNumber(obj.duplication_frac) ??
+      toNumber(obj.dup_frac) ??
+      toNumber(obj.percent_duplicates);
+    if (direct !== null) return direct > 1 ? direct / 100 : direct;
+
+    // Heuristic fallback across Cell Ranger versions / assay-specific prefixes.
+    let best = null;
+    let bestScore = -1;
+    for (const key of Object.keys(obj)) {
+      const lower = key.toLowerCase();
+      // Skip subsampled/downsampling series keys; we want the current aggregate metric.
+      if (lower.includes("subsampled") || lower.includes("raw_rpc_")) continue;
+
+      let score = -1;
+      if (lower.includes("sequencing_saturation")) score = 4;
+      else if (lower.includes("duplication_frac") || lower.endsWith("dup_frac")) score = 3;
+      else if (lower.includes("percent_duplicates")) score = 2;
+      else if (lower.includes("duplicate") && (lower.includes("frac") || lower.includes("percent"))) score = 1;
+
+      if (score < 0) continue;
+      const v = toNumber(obj[key]);
+      if (!Number.isFinite(v)) continue;
+      score += metricsKeyPreferenceScore(key);
+      if (score > bestScore) {
+        best = v;
+        bestScore = score;
+      }
+    }
+
+    if (best !== null) return best > 1 ? best / 100 : best;
+
+    // Final fallback: infer "current" saturation from the preferred raw_rpc subsampled series.
+    const satSeries = [];
+    for (const key of Object.keys(obj)) {
+      const m = key.match(
+        /raw_rpc_(\d+)_subsampled_.*(sequencing_saturation|duplication_frac|dup_frac|percent_duplicates)$/i
+      );
+      if (!m) continue;
+      const reads = Number(m[1]);
+      let v = toNumber(obj[key]);
+      if (!Number.isFinite(reads) || !Number.isFinite(v)) continue;
+      v = v > 1 ? v / 100 : v;
+      if (!(v >= 0 && v <= 1)) continue;
+      satSeries.push({ reads, v, score: metricsKeyPreferenceScore(key) });
+    }
+    if (satSeries.length === 0) return null;
+
+    // Prefer the point nearest to current reads/cell if available, otherwise highest reads/cell.
+    if (Number.isFinite(currentReads) && currentReads > 0) {
+      satSeries.sort((a, b) => {
+        const da = Math.abs(a.reads - currentReads);
+        const db = Math.abs(b.reads - currentReads);
+        if (da !== db) return da - db;
+        if (a.score !== b.score) return b.score - a.score;
+        return b.reads - a.reads;
+      });
+      return satSeries[0].v;
+    }
+
+    satSeries.sort((a, b) => {
+      if (a.reads !== b.reads) return b.reads - a.reads;
+      return b.score - a.score;
+    });
+    return satSeries[0].v;
   }
 
   function seriesFromWebPlot(plotWrapper, valueTransform) {
@@ -210,6 +322,7 @@
     const out = {
       sampleId: null,
       sourceType: "web_summary.html",
+      currentCells: null,
       currentReads: null,
       currentUmis: null,
       currentSat: null,
@@ -249,6 +362,7 @@
     for (const row of cellsRows) {
       if (!Array.isArray(row)) continue;
       const key = String(row[0]).toLowerCase();
+      if (key.includes("estimated number of cells")) out.currentCells = toNumber(row[1]);
       if (key.includes("mean reads per cell")) out.currentReads = toNumber(row[1]);
       if (key.includes("median umi") || key.includes("median counts")) out.currentUmis = toNumber(row[1]);
     }
@@ -266,6 +380,7 @@
     const out = {
       sampleId: obj.sample_id || "Unknown sample",
       sourceType: "metrics_summary.json",
+      currentCells: extractEstimatedCellsFromMetrics(obj),
       currentReads: toNumber(obj.reads_per_cell),
       currentUmis: null,
       currentSat: null,
@@ -281,7 +396,9 @@
 
     const umiSeries = collectFromMetricKeys(
       obj,
-      /raw_rpc_(\d+)_subsampled_filtered_bcs_median_counts$/i
+      /raw_rpc_(\d+)_subsampled_filtered_bcs_median_counts$/i,
+      null,
+      metricsKeyPreferenceScore
     );
     if (umiSeries.x.length > 0) {
       const pairs = umiSeries.x.map((x, i) => ({ x, y: umiSeries.y[i] })).filter((d) => d.y > 0);
@@ -291,20 +408,15 @@
     const satSeries = collectFromMetricKeys(
       obj,
       /raw_rpc_(\d+)_subsampled_.*(sequencing_saturation|duplication_frac|dup_frac|percent_duplicates)$/i,
-      (v) => (v > 1 && v <= 100 ? v / 100 : v)
+      (v) => (v > 1 && v <= 100 ? v / 100 : v),
+      metricsKeyPreferenceScore
     );
     if (satSeries.x.length > 0) {
       const pairs = satSeries.x.map((x, i) => ({ x, y: satSeries.y[i] })).filter((d) => d.y > 0 && d.y < 1);
       out.satSeries = pairedSeries(pairs);
     }
 
-    if (out.currentSat === null) {
-      const satValue =
-        toNumber(obj.sequencing_saturation) ??
-        toNumber(obj.duplication_frac) ??
-        toNumber(obj.percent_duplicates);
-      if (satValue !== null) out.currentSat = satValue > 1 ? satValue / 100 : satValue;
-    }
+    if (out.currentSat === null) out.currentSat = extractCurrentSaturationFromMetrics(obj, out.currentReads);
 
     return out;
   }
@@ -639,6 +751,7 @@
     const lowerMeta = lowerMetricMeta(state.lowerMetricKind);
     els.sampleId.textContent = state.sampleId || "-";
     els.sourceType.textContent = state.sourceType || "-";
+    els.currentCells.textContent = prettyNum(state.currentCells);
     els.currentReads.textContent = prettyNum(state.currentReads);
     els.currentUmis.textContent = prettyNum(state.currentUmis);
     els.currentSat.textContent =
@@ -743,6 +856,7 @@
   function setFromParsed(parsed) {
     state.sampleId = parsed.sampleId;
     state.sourceType = parsed.sourceType;
+    state.currentCells = parsed.currentCells;
     state.currentReads = parsed.currentReads;
     state.currentUmis = parsed.currentUmis;
     state.currentSat = parsed.currentSat;
@@ -761,6 +875,26 @@
     const satPctTarget = toNumber(els.satTarget.value);
     const out = [];
 
+    const appendTotalReadInfo = (readsPerCell) => {
+      if (!Number.isFinite(readsPerCell) || readsPerCell <= 0) return;
+      if (!Number.isFinite(state.currentCells) || state.currentCells <= 0) {
+        out.push("<p>Estimated cell count unavailable; total reads required cannot be calculated.</p>");
+        return;
+      }
+      const totalReads = readsPerCell * state.currentCells;
+      out.push(`<p>Estimated total reads required: <strong>${prettyNum(totalReads)}</strong></p>`);
+
+      if (Number.isFinite(state.currentReads) && state.currentReads > 0) {
+        const currentTotal = state.currentReads * state.currentCells;
+        const delta = totalReads - currentTotal;
+        if (delta > 0) {
+          out.push(`<p>Additional reads needed: <strong>${prettyNum(delta)}</strong></p>`);
+        } else {
+          out.push(`<p>Additional reads needed: <strong>0</strong> (already at or above target)</p>`);
+        }
+      }
+    };
+
     if (Number.isFinite(readsTarget) && readsTarget > 0) {
       out.push(`<h3>From ${prettyNum(readsTarget)} reads/cell</h3>`);
       if (state.umiFit) {
@@ -771,6 +905,7 @@
         const predS = state.satFit.predict(readsTarget) * 100;
         out.push(`<p>Predicted saturation: <strong>${prettyNum(predS, 2)}%</strong></p>`);
       }
+      appendTotalReadInfo(readsTarget);
     }
 
     if (Number.isFinite(umiTarget) && umiTarget > 0) {
@@ -784,6 +919,7 @@
       } else {
         const r = state.umiFit.readsForTargetUmi(umiTarget);
         out.push(`<p>Required reads/cell: <strong>${prettyNum(r)}</strong></p>`);
+        appendTotalReadInfo(r);
       }
     }
 
@@ -797,6 +933,7 @@
       } else {
         const r = state.satFit.readsForTargetSat(sat);
         out.push(`<p>Required reads/cell: <strong>${prettyNum(r)}</strong></p>`);
+        appendTotalReadInfo(r);
       }
     }
 

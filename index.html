@@ -17,10 +17,10 @@
       <section class="hero">
         <h1>Halfsat</h1>
         <h2>Modeling Sequencing Saturation in 10X Genomics data</h2>
-        <p class="subhead">
-          Load a local 10x file (`web_summary.html` or `metrics_summary.json`)
+        <p class="note">
+          Load a local 10x Genomics QC summary file (`web_summary.html` or `metrics_summary.json`)
           and interactively predict read depth, UMIs per cell, and sequencing
-          saturation.
+          saturation. This tool can be useful for planning additional sequencing or evaluating the efficiency of a run.
         </p>
       </section>
 
@@ -70,6 +70,7 @@
           <dl class="meta">
             <div><dt>Sample</dt><dd id="sampleId">-</dd></div>
             <div><dt>File Type</dt><dd id="sourceType">-</dd></div>
+            <div><dt>Estimated Cells</dt><dd id="currentCells">-</dd></div>
             <div><dt>Current Reads/Cell</dt><dd id="currentReads">-</dd></div>
             <div><dt>Current UMIs/Cell</dt><dd id="currentUmis">-</dd></div>
             <div><dt>Current Saturation</dt><dd id="currentSat">-</dd></div>
