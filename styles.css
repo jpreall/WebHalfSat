@@ -31,6 +31,24 @@ body {
   padding: 24px 16px 40px;
 }
 
+.page-footer {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 16px 28px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.page-footer a {
+  color: #67e8f9;
+  text-decoration: none;
+}
+
+.page-footer a:hover {
+  text-decoration: underline;
+}
+
 .hero h1 {
   margin: 0 0 10px;
   font-size: clamp(2rem, 4vw, 3.2rem);
