@@ -15,13 +15,47 @@
   <body>
     <main class="shell">
       <section class="hero">
-        <p class="kicker">GitHub Pages Static App</p>
-        <h1>HalfSat Explorer</h1>
+        <h1>Halfsat</h1>
+        <h2>Modeling Sequencing Saturation in 10X Genomics data</h2>
         <p class="subhead">
           Load a local 10x file (`web_summary.html` or `metrics_summary.json`)
           and interactively predict read depth, UMIs per cell, and sequencing
           saturation.
         </p>
+      </section>
+
+      <section class="panel model-explainer">
+        <details>
+          <summary>How The Model Works (click to expand)</summary>
+          <p class="note">
+            The app fits simple saturating curves to your downsampling points. It
+            uses the fitted parameters to predict values at new read depths and to
+            estimate the reads/cell needed to hit a target.
+          </p>
+          <div class="grid two">
+            <div>
+              <h3>Sequencing Saturation</h3>
+              <p class="equation">s(R) = R / (R + a)</p>
+              <p class="equation">R = (a · s) / (1 - s)</p>
+              <p class="note">
+                <strong>a</strong> is the half-saturation parameter (reads/cell at
+                which the curve reaches half of its maximum). The maximum
+                saturation is fixed at <strong>1.0</strong>.
+              </p>
+            </div>
+            <div>
+              <h3>UMIs/Genes vs Reads</h3>
+              <p class="equation">M(R) = (b · R) / (R + a)</p>
+              <p class="equation">R = (a · M) / (b - M)</p>
+              <p class="note">
+                <strong>a</strong> is the half-saturation parameter and
+                <strong> b</strong> is the fitted maximum (asymptote). The lower
+                plot uses <strong>UMIs</strong> when available, and falls back to
+                <strong> genes</strong> for some web summary files.
+              </p>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section class="panel upload">
@@ -46,8 +80,8 @@
           <h2>Model Fit</h2>
           <dl class="meta">
             <div><dt>Sat half-saturation `a`</dt><dd id="satA">-</dd></div>
-            <div><dt>UMI half-saturation `a`</dt><dd id="umiA">-</dd></div>
-            <div><dt>UMI max `b`</dt><dd id="umiB">-</dd></div>
+            <div><dt id="lowerFitLabelA">UMI half-saturation `a`</dt><dd id="umiA">-</dd></div>
+            <div><dt id="lowerFitLabelB">UMI max `b`</dt><dd id="umiB">-</dd></div>
           </dl>
           <p id="fitNotes" class="note">Load a file to compute fit parameters.</p>
         </article>
@@ -59,7 +93,7 @@
           <canvas id="satCanvas" class="plot" width="640" height="380"></canvas>
         </article>
         <article class="panel">
-          <h2>UMIs vs Reads</h2>
+          <h2 id="lowerPlotTitle">UMIs vs Reads</h2>
           <canvas id="umiCanvas" class="plot" width="640" height="380"></canvas>
         </article>
       </section>
@@ -72,7 +106,7 @@
             <input id="readsTarget" type="number" min="1" step="1" placeholder="e.g. 40000" />
           </label>
           <label>
-            UMIs per cell
+            <span id="metricTargetLabel">UMIs per cell</span>
             <input id="umiTarget" type="number" min="1" step="1" placeholder="e.g. 6000" />
           </label>
           <label>

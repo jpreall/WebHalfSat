@@ -7,6 +7,7 @@
     currentReads: null,
     currentUmis: null,
     currentSat: null,
+    lowerMetricKind: "umi",
     satSeries: null,
     umiSeries: null,
     satFit: null,
@@ -21,6 +22,10 @@
     currentReads: document.getElementById("currentReads"),
     currentUmis: document.getElementById("currentUmis"),
     currentSat: document.getElementById("currentSat"),
+    lowerFitLabelA: document.getElementById("lowerFitLabelA"),
+    lowerFitLabelB: document.getElementById("lowerFitLabelB"),
+    lowerPlotTitle: document.getElementById("lowerPlotTitle"),
+    metricTargetLabel: document.getElementById("metricTargetLabel"),
     satA: document.getElementById("satA"),
     umiA: document.getElementById("umiA"),
     umiB: document.getElementById("umiB"),
@@ -33,6 +38,23 @@
     runPredictions: document.getElementById("runPredictions"),
     results: document.getElementById("results"),
   };
+
+  function lowerMetricMeta(kind) {
+    if (kind === "gene") {
+      return {
+        singular: "Gene",
+        plural: "Genes",
+        perCell: "Genes/Cell",
+        panelTitle: "Genes vs Reads",
+      };
+    }
+    return {
+      singular: "UMI",
+      plural: "UMIs",
+      perCell: "UMIs/Cell",
+      panelTitle: "UMIs vs Reads",
+    };
+  }
 
   function toNumber(value) {
     if (value === null || value === undefined) return null;
@@ -113,6 +135,63 @@
     throw new Error("Failed to parse JSON payload from web_summary HTML.");
   }
 
+  function seriesFromWebPlot(plotWrapper, valueTransform) {
+    const x = plotWrapper?.plot?.data?.[0]?.x;
+    const y = plotWrapper?.plot?.data?.[0]?.y;
+    if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length || x.length < 2) return null;
+
+    const pairs = x.map((xv, i) => {
+      let yv = Number(y[i]);
+      if (typeof valueTransform === "function") yv = valueTransform(yv);
+      return { x: Number(xv), y: yv };
+    });
+    const series = pairedSeries(pairs);
+    return series.x.length >= 2 ? series : null;
+  }
+
+  function pickWebSummaryLowerSeries(summary) {
+    const analysis = summary?.analysis_tab || {};
+    const exactCandidates = [
+      { key: "median_umi_plot", kind: "umi" },
+      { key: "median_umis_plot", kind: "umi" },
+      { key: "median_count_plot", kind: "umi" },
+      { key: "median_counts_plot", kind: "umi" },
+      { key: "transcripts_per_cell_plot", kind: "umi" },
+      { key: "median_transcript_plot", kind: "umi" },
+      { key: "median_gene_plot", kind: "gene" },
+      { key: "median_genes_plot", kind: "gene" },
+      { key: "genes_per_cell_plot", kind: "gene" },
+    ];
+
+    for (const c of exactCandidates) {
+      const series = seriesFromWebPlot(analysis[c.key]);
+      if (series) return { series, kind: c.kind, sourceKey: c.key };
+    }
+
+    const ranked = Object.entries(analysis)
+      .map(([key, value]) => {
+        if (!value || typeof value !== "object" || !value.plot) return null;
+        const lower = key.toLowerCase();
+        if (lower.includes("sat")) return null;
+        if (lower.includes("umi") || lower.includes("transcript") || lower.includes("count")) {
+          return { key, value, kind: "umi", score: 3 };
+        }
+        if (lower.includes("gene")) {
+          return { key, value, kind: "gene", score: 2 };
+        }
+        return null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+
+    for (const c of ranked) {
+      const series = seriesFromWebPlot(c.value);
+      if (series) return { series, kind: c.kind, sourceKey: c.key };
+    }
+
+    return null;
+  }
+
   function fromWebSummary(data) {
     const out = {
       sampleId: null,
@@ -120,6 +199,7 @@
       currentReads: null,
       currentUmis: null,
       currentSat: null,
+      lowerMetricKind: "umi",
       satSeries: null,
       umiSeries: null,
     };
@@ -159,6 +239,12 @@
       if (key.includes("median umi") || key.includes("median counts")) out.currentUmis = toNumber(row[1]);
     }
 
+    const lowerSeries = pickWebSummaryLowerSeries(summary);
+    if (lowerSeries) {
+      out.umiSeries = lowerSeries.series;
+      out.lowerMetricKind = lowerSeries.kind;
+    }
+
     return out;
   }
 
@@ -169,6 +255,7 @@
       currentReads: toNumber(obj.reads_per_cell),
       currentUmis: null,
       currentSat: null,
+      lowerMetricKind: "umi",
       satSeries: null,
       umiSeries: null,
     };
@@ -316,11 +403,11 @@
     const h = height - m.top - m.bottom;
 
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#fffdf6";
+    ctx.fillStyle = "#0b1220";
     ctx.fillRect(0, 0, width, height);
 
     if (!opts || !opts.x || opts.x.length < 2) {
-      ctx.fillStyle = "#4b5563";
+      ctx.fillStyle = "#cbd5e1";
       ctx.font = "14px Space Grotesk, sans-serif";
       ctx.fillText("No plottable data in this file.", 20, 30);
       return;
@@ -329,12 +416,14 @@
     const xMaxData = Math.max(...opts.x);
     const xMax = Math.max(xMaxData, opts.targetX || 0) * 1.15;
     const yMaxData = Math.max(...opts.y);
-    const yMax = Math.max(yMaxData, opts.curveMaxY || yMaxData) * 1.1;
+    const referenceY = Number.isFinite(opts.referenceY) ? opts.referenceY : null;
+    const yCeiling = Math.max(yMaxData, opts.curveMaxY || yMaxData, referenceY || -Infinity);
+    const yMax = yCeiling * (opts.yBufferFactor || 1.08);
 
     const xToPx = (x) => m.left + (x / xMax) * w;
     const yToPx = (y) => m.top + h - (y / yMax) * h;
 
-    ctx.strokeStyle = "#d1d5db";
+    ctx.strokeStyle = "#334155";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(m.left, m.top);
@@ -342,13 +431,13 @@
     ctx.lineTo(m.left + w, m.top + h);
     ctx.stroke();
 
-    ctx.fillStyle = "#111827";
+    ctx.fillStyle = "#e2e8f0";
     ctx.font = "12px Space Grotesk, sans-serif";
     ctx.fillText(opts.title || "", m.left, 18);
     ctx.fillText(opts.xLabel || "x", m.left + w - 80, m.top + h + 30);
     ctx.fillText(opts.yLabel || "y", 6, m.top + 14);
 
-    ctx.fillStyle = "#1f2937";
+    ctx.fillStyle = "#cbd5e1";
     for (let i = 0; i <= 4; i += 1) {
       const xVal = (xMax * i) / 4;
       const xPx = xToPx(xVal);
@@ -358,6 +447,28 @@
       const yVal = (yMax * i) / 4;
       const yPx = yToPx(yVal);
       ctx.fillText(prettyNum(yVal, yMax <= 1.2 ? 2 : 0), 8, yPx + 4);
+    }
+
+    if (referenceY !== null && referenceY >= 0 && referenceY <= yMax) {
+      const refYPx = yToPx(referenceY);
+      ctx.save();
+      ctx.strokeStyle = opts.referenceLineColor || "rgba(148, 163, 184, 0.8)";
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(m.left, refYPx);
+      ctx.lineTo(m.left + w, refYPx);
+      ctx.stroke();
+      ctx.restore();
+
+      const refDigits =
+        typeof opts.referenceDigits === "number" ? opts.referenceDigits : referenceY <= 1.2 ? 2 : 0;
+      const refText = `${opts.referenceLabelPrefix || "max"} ${prettyNum(referenceY, refDigits)}`;
+      ctx.fillStyle = opts.referenceTextColor || "#e2e8f0";
+      ctx.font = "12px Space Grotesk, sans-serif";
+      const textX = Math.max(m.left + 6, m.left + w - 124);
+      const textY = Math.max(m.top + 14, refYPx - 6);
+      ctx.fillText(refText, textX, textY);
     }
 
     ctx.fillStyle = opts.pointColor || "#0f766e";
@@ -384,7 +495,7 @@
     }
 
     if (Number.isFinite(opts.targetX) && Number.isFinite(opts.targetY)) {
-      ctx.fillStyle = "#be123c";
+      ctx.fillStyle = "#f43f5e";
       ctx.beginPath();
       ctx.arc(xToPx(opts.targetX), yToPx(opts.targetY), 4.5, 0, 2 * Math.PI);
       ctx.fill();
@@ -392,6 +503,7 @@
   }
 
   function render() {
+    const lowerMeta = lowerMetricMeta(state.lowerMetricKind);
     els.sampleId.textContent = state.sampleId || "-";
     els.sourceType.textContent = state.sourceType || "-";
     els.currentReads.textContent = prettyNum(state.currentReads);
@@ -402,10 +514,17 @@
     els.satA.textContent = state.satFit ? prettyNum(state.satFit.a) : "-";
     els.umiA.textContent = state.umiFit ? prettyNum(state.umiFit.a) : "-";
     els.umiB.textContent = state.umiFit ? prettyNum(state.umiFit.b) : "-";
+    if (els.lowerFitLabelA) els.lowerFitLabelA.textContent = `${lowerMeta.singular} half-saturation \`a\``;
+    if (els.lowerFitLabelB) els.lowerFitLabelB.textContent = `${lowerMeta.singular} max \`b\``;
+    if (els.lowerPlotTitle) els.lowerPlotTitle.textContent = lowerMeta.panelTitle;
+    if (els.metricTargetLabel) els.metricTargetLabel.textContent = `${lowerMeta.plural} per cell`;
 
     const notes = [];
     if (!state.satFit) notes.push("Sequencing saturation fit unavailable from current file.");
-    if (!state.umiFit) notes.push("UMI fit unavailable from current file.");
+    if (!state.umiFit) notes.push(`${lowerMeta.singular} fit unavailable from current file.`);
+    if (state.lowerMetricKind === "gene" && state.umiFit) {
+      notes.push("Using genes-per-cell downsampling fallback from web summary.");
+    }
     if (notes.length === 0) notes.push("Fits computed successfully.");
     els.fitNotes.textContent = notes.join(" ");
 
@@ -417,20 +536,32 @@
       xLabel: "Reads/Cell",
       yLabel: "Saturation",
       curveMaxY: 1,
-      pointColor: "#0f766e",
-      lineColor: "#b45309",
+      referenceY: 1,
+      referenceLabelPrefix: "max",
+      referenceDigits: 2,
+      yBufferFactor: 1.08,
+      referenceLineColor: "rgba(248, 250, 252, 0.45)",
+      pointColor: "#22d3ee",
+      lineColor: "#f472b6",
     });
 
+    const lowerRefY =
+      state.umiFit?.b ||
+      (state.umiSeries?.y && state.umiSeries.y.length ? Math.max(...state.umiSeries.y) : null);
     drawPlot(els.umiCanvas, {
       x: state.umiSeries?.x,
       y: state.umiSeries?.y,
       fitFn: state.umiFit?.predict,
-      title: "UMI Curve",
+      title: `${lowerMeta.singular} Curve`,
       xLabel: "Reads/Cell",
-      yLabel: "UMIs/Cell",
+      yLabel: lowerMeta.perCell,
       curveMaxY: state.umiFit?.b || undefined,
-      pointColor: "#1d4ed8",
-      lineColor: "#dc2626",
+      referenceY: lowerRefY,
+      referenceLabelPrefix: "max",
+      yBufferFactor: 1.08,
+      referenceLineColor: "rgba(250, 204, 21, 0.55)",
+      pointColor: "#a78bfa",
+      lineColor: "#facc15",
     });
   }
 
@@ -440,6 +571,7 @@
     state.currentReads = parsed.currentReads;
     state.currentUmis = parsed.currentUmis;
     state.currentSat = parsed.currentSat;
+    state.lowerMetricKind = parsed.lowerMetricKind || "umi";
     state.satSeries = parsed.satSeries;
     state.umiSeries = parsed.umiSeries;
     state.satFit = fitSaturationCurve(parsed.satSeries);
@@ -448,6 +580,7 @@
   }
 
   function runPredictions() {
+    const lowerMeta = lowerMetricMeta(state.lowerMetricKind);
     const readsTarget = toNumber(els.readsTarget.value);
     const umiTarget = toNumber(els.umiTarget.value);
     const satPctTarget = toNumber(els.satTarget.value);
@@ -457,7 +590,7 @@
       out.push(`<h3>From ${prettyNum(readsTarget)} reads/cell</h3>`);
       if (state.umiFit) {
         const predU = state.umiFit.predict(readsTarget);
-        out.push(`<p>Predicted UMIs/cell: <strong>${prettyNum(predU)}</strong></p>`);
+        out.push(`<p>Predicted ${lowerMeta.plural}/cell: <strong>${prettyNum(predU)}</strong></p>`);
       }
       if (state.satFit) {
         const predS = state.satFit.predict(readsTarget) * 100;
@@ -466,12 +599,12 @@
     }
 
     if (Number.isFinite(umiTarget) && umiTarget > 0) {
-      out.push(`<h3>For target ${prettyNum(umiTarget)} UMIs/cell</h3>`);
+      out.push(`<h3>For target ${prettyNum(umiTarget)} ${lowerMeta.plural}/cell</h3>`);
       if (!state.umiFit) {
-        out.push("<p>UMI model unavailable for current file.</p>");
+        out.push(`<p>${lowerMeta.singular} model unavailable for current file.</p>`);
       } else if (umiTarget >= state.umiFit.b) {
         out.push(
-          `<p>Target exceeds fitted UMI max (${prettyNum(state.umiFit.b)}). Reads required are undefined.</p>`
+          `<p>Target exceeds fitted ${lowerMeta.singular} max (${prettyNum(state.umiFit.b)}). Reads required are undefined.</p>`
         );
       } else {
         const r = state.umiFit.readsForTargetUmi(umiTarget);

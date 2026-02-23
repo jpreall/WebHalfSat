@@ -38,6 +38,24 @@ The app extracts the JSON object assigned to `const data`, then reads:
 - analysis tab saturation plot points
 - cell summary table values
 
+For the lower-right depth-response plot, the app prefers UMI/transcript downsampling data when available. If a `web_summary.html` only provides gene-level downsampling (common in some Cell Ranger web summaries), it automatically falls back to genes-per-cell/median-gene downsampling.
+
+## Compatibility Matrix
+
+This table tracks examples in `test_files/` that have been manually checked against the parser.
+
+| Cell Ranger Version | Assay / Example Folder | `metrics_summary.json` | `web_summary.html` | Lower-right plot source | Status | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 9.0.0 | `test_files/Cellranger_9.0.0_3p_GEX` | Not yet added | Yes | `median_gene_plot` fallback (genes) | Partial | Saturation + gene fallback confirmed from web summary; add matching `metrics_summary.json` example next. |
+| TBD | `test_files/...` | TBD | TBD | TBD | Planned | Add legacy versions (e.g. v7, v6, v5, v4, v3) as examples are collected. |
+
+### Matrix Status Definitions
+
+- `Pass`: parsing + plotting + predictions work with expected metric source(s)
+- `Partial`: file loads, but one or more fitted series depend on fallback or are missing
+- `Fail`: parse error or unusable output
+- `Planned`: test fixture not added yet
+
 ## Modeling
 
 ### Saturation model

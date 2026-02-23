@@ -1,12 +1,12 @@
 :root {
-  --bg: #fef9ef;
-  --bg-accent: #fde68a;
-  --ink: #1f2937;
-  --muted: #4b5563;
-  --card: #fffdf6;
-  --line: #e5e7eb;
-  --brand: #b45309;
-  --brand-dark: #7c2d12;
+  --bg: #070b17;
+  --bg-accent: #0ea5e9;
+  --ink: #eef2ff;
+  --muted: #a5b4fc;
+  --card: rgba(14, 19, 36, 0.88);
+  --line: rgba(148, 163, 184, 0.22);
+  --brand: #22d3ee;
+  --brand-dark: #f472b6;
 }
 
 * {
@@ -18,9 +18,10 @@ body {
   color: var(--ink);
   font-family: "Space Grotesk", sans-serif;
   background:
-    radial-gradient(circle at 12% 8%, var(--bg-accent) 0%, transparent 28%),
-    radial-gradient(circle at 88% 24%, #c7f9cc 0%, transparent 24%),
-    linear-gradient(170deg, var(--bg), #fff);
+    radial-gradient(circle at 12% 8%, rgba(34, 211, 238, 0.22) 0%, transparent 32%),
+    radial-gradient(circle at 88% 24%, rgba(244, 114, 182, 0.18) 0%, transparent 28%),
+    radial-gradient(circle at 56% 92%, rgba(139, 92, 246, 0.14) 0%, transparent 36%),
+    linear-gradient(170deg, #05070f, var(--bg));
   min-height: 100vh;
 }
 
@@ -57,12 +58,18 @@ body {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.05);
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
+  backdrop-filter: blur(8px);
 }
 
 .panel h2 {
   margin: 0 0 10px;
   font-size: 1.05rem;
+}
+
+.panel h3 {
+  margin: 8px 0 8px;
+  font-size: 0.98rem;
 }
 
 .grid {
@@ -87,13 +94,48 @@ body {
   flex-wrap: wrap;
 }
 
+.model-explainer {
+  margin-top: 16px;
+}
+
+.model-explainer details {
+  display: block;
+}
+
+.model-explainer summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #f8fafc;
+  list-style-position: outside;
+}
+
+.model-explainer details[open] summary {
+  margin-bottom: 10px;
+}
+
+.model-explainer .grid {
+  margin-top: 8px;
+}
+
+.equation {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.45);
+  color: #f8fafc;
+  font-family: "Source Serif 4", serif;
+  font-size: 1rem;
+}
+
 .upload-label {
-  background: linear-gradient(135deg, #f59e0b, #ea580c);
-  color: #fff;
+  background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+  color: #f8fafc;
   font-weight: 700;
   padding: 10px 14px;
   border-radius: 10px;
   cursor: pointer;
+  box-shadow: 0 8px 18px rgba(6, 182, 212, 0.28);
 }
 
 input[type="file"] {
@@ -125,6 +167,7 @@ input[type="file"] {
 .meta dd {
   margin: 0;
   font-weight: 700;
+  color: #ffffff;
 }
 
 .note {
@@ -138,6 +181,7 @@ input[type="file"] {
   height: 300px;
   border: 1px solid var(--line);
   border-radius: 10px;
+  background: #0b1220;
 }
 
 .controls label {
@@ -149,22 +193,29 @@ input[type="file"] {
 
 .controls input {
   width: 100%;
-  border: 1px solid #d1d5db;
+  border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 8px;
   padding: 10px 10px;
   font: inherit;
+  background: rgba(15, 23, 42, 0.8);
+  color: #f8fafc;
+}
+
+.controls input::placeholder {
+  color: #94a3b8;
 }
 
 .action {
   margin-top: 12px;
   border: 0;
   border-radius: 8px;
-  background: var(--ink);
-  color: #fff;
+  background: linear-gradient(135deg, #22d3ee, #ec4899);
+  color: #0b1020;
   padding: 10px 14px;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 10px 22px rgba(236, 72, 153, 0.22);
 }
 
 .results {
@@ -180,6 +231,10 @@ input[type="file"] {
 
 .results p {
   margin: 4px 0;
+}
+
+.results strong {
+  color: #67e8f9;
 }
 
 @media (max-width: 900px) {

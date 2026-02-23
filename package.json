@@ -1,0 +1,11 @@
+{
+  "name": "webhalfsat",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Static browser tool for exploring Cell Ranger sequencing saturation and depth tradeoffs",
+  "scripts": {
+    "smoke": "node scripts/smoke-test.js",
+    "smoke:headed": "node scripts/smoke-test.js --headed",
+    "validate:web-summary": "node validate-web-summary.js"
+  }
+}
