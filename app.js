@@ -12,7 +12,13 @@
     umiSeries: null,
     satFit: null,
     umiFit: null,
+    satHoverX: null,
+    umiHoverX: null,
+    satXZoomScale: 1,
+    umiXZoomScale: 1,
   };
+
+  const PLOT_MARGINS = { left: 56, right: 16, top: 34, bottom: 42 };
 
   const els = {
     fileInput: document.getElementById("fileInput"),
@@ -32,6 +38,14 @@
     fitNotes: document.getElementById("fitNotes"),
     satCanvas: document.getElementById("satCanvas"),
     umiCanvas: document.getElementById("umiCanvas"),
+    satZoomOut: document.getElementById("satZoomOut"),
+    satZoomIn: document.getElementById("satZoomIn"),
+    satZoomReset: document.getElementById("satZoomReset"),
+    satZoomLabel: document.getElementById("satZoomLabel"),
+    umiZoomOut: document.getElementById("umiZoomOut"),
+    umiZoomIn: document.getElementById("umiZoomIn"),
+    umiZoomReset: document.getElementById("umiZoomReset"),
+    umiZoomLabel: document.getElementById("umiZoomLabel"),
     readsTarget: document.getElementById("readsTarget"),
     umiTarget: document.getElementById("umiTarget"),
     satTarget: document.getElementById("satTarget"),
@@ -394,11 +408,39 @@
     return ctx;
   }
 
+  function getPlotXMax(series, opts) {
+    if (!series || !series.x || series.x.length < 1) return null;
+    const xMaxData = Math.max(...series.x);
+    const autoXMax = Math.max(xMaxData, opts?.targetX || 0) * (opts?.xBufferFactor || 1.15);
+    const scale = Number.isFinite(opts?.xZoomScale) && opts.xZoomScale > 0 ? opts.xZoomScale : 1;
+    return autoXMax * scale;
+  }
+
+  function drawTag(ctx, x, y, text, opts) {
+    const padX = 6;
+    const padY = 4;
+    ctx.font = (opts && opts.font) || "12px Space Grotesk, sans-serif";
+    const w = ctx.measureText(text).width + padX * 2;
+    const h = 20;
+    const rx = Math.max(2, x);
+    const ry = Math.max(2, y);
+    ctx.fillStyle = (opts && opts.bg) || "rgba(15, 23, 42, 0.92)";
+    ctx.strokeStyle = (opts && opts.border) || "rgba(148, 163, 184, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(rx, ry, w, h, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = (opts && opts.fg) || "#f8fafc";
+    ctx.fillText(text, rx + padX, ry + 14);
+    return { w, h };
+  }
+
   function drawPlot(canvas, opts) {
     const ctx = resetCanvas(canvas);
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
-    const m = { left: 56, right: 16, top: 34, bottom: 42 };
+    const m = PLOT_MARGINS;
     const w = width - m.left - m.right;
     const h = height - m.top - m.bottom;
 
@@ -413,8 +455,8 @@
       return;
     }
 
-    const xMaxData = Math.max(...opts.x);
-    const xMax = Math.max(xMaxData, opts.targetX || 0) * 1.15;
+    const xMax = getPlotXMax({ x: opts.x }, { targetX: opts.targetX, xZoomScale: opts.xZoomScale });
+    if (!Number.isFinite(xMax) || xMax <= 0) return;
     const yMaxData = Math.max(...opts.y);
     const referenceY = Number.isFinite(opts.referenceY) ? opts.referenceY : null;
     const yCeiling = Math.max(yMaxData, opts.curveMaxY || yMaxData, referenceY || -Infinity);
@@ -494,11 +536,102 @@
       ctx.stroke();
     }
 
+    if (Number.isFinite(opts.fixedCrosshairX) && Number.isFinite(opts.fixedCrosshairY)) {
+      const cx = Math.max(0, Math.min(xMax, opts.fixedCrosshairX));
+      const cy = Math.max(0, Math.min(yMax, opts.fixedCrosshairY));
+      const cpx = xToPx(cx);
+      const cpy = yToPx(cy);
+
+      ctx.save();
+      ctx.strokeStyle = opts.fixedCrosshairLineColor || "rgba(255,255,255,0.22)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 5]);
+      ctx.beginPath();
+      ctx.moveTo(cpx, m.top + h);
+      ctx.lineTo(cpx, cpy);
+      ctx.lineTo(m.left, cpy);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = opts.fixedCrosshairPointColor || "rgba(255,255,255,0.75)";
+      ctx.beginPath();
+      ctx.arc(cpx, cpy, 3, 0, 2 * Math.PI);
+      ctx.fill();
+
+      if (opts.fixedCrosshairLabel) {
+        ctx.fillStyle = opts.fixedCrosshairTextColor || "rgba(226, 232, 240, 0.9)";
+        ctx.font = "11px Space Grotesk, sans-serif";
+        ctx.fillText(
+          opts.fixedCrosshairLabel,
+          Math.min(cpx + 6, m.left + w - 70),
+          Math.max(m.top + 12, cpy - 8)
+        );
+      }
+    }
+
     if (Number.isFinite(opts.targetX) && Number.isFinite(opts.targetY)) {
       ctx.fillStyle = "#f43f5e";
       ctx.beginPath();
       ctx.arc(xToPx(opts.targetX), yToPx(opts.targetY), 4.5, 0, 2 * Math.PI);
       ctx.fill();
+    }
+
+    if (Number.isFinite(opts.hoverX)) {
+      const hoverX = Math.max(0, Math.min(xMax, opts.hoverX));
+      let hoverY = null;
+      if (typeof opts.fitFn === "function") {
+        const y = opts.fitFn(hoverX);
+        if (Number.isFinite(y)) hoverY = y;
+      } else if (Array.isArray(opts.x) && opts.x.length) {
+        let bestIdx = 0;
+        let bestDist = Math.abs(opts.x[0] - hoverX);
+        for (let i = 1; i < opts.x.length; i += 1) {
+          const d = Math.abs(opts.x[i] - hoverX);
+          if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+          }
+        }
+        hoverY = opts.y[bestIdx];
+      }
+
+      if (Number.isFinite(hoverY)) {
+        hoverY = Math.max(0, Math.min(yMax, hoverY));
+        const hx = xToPx(hoverX);
+        const hy = yToPx(hoverY);
+
+        ctx.save();
+        ctx.strokeStyle = opts.hoverLineColor || "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(hx, m.top + h);
+        ctx.lineTo(hx, hy);
+        ctx.lineTo(m.left, hy);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.fillStyle = opts.hoverPointColor || "#f8fafc";
+        ctx.beginPath();
+        ctx.arc(hx, hy, 4, 0, 2 * Math.PI);
+        ctx.fill();
+
+        const xLabel = `Reads/cell: ${prettyNum(hoverX)}`;
+        const yLabel = typeof opts.hoverYFormatter === "function"
+          ? opts.hoverYFormatter(hoverY)
+          : `Y ${prettyNum(hoverY, yMax <= 1.2 ? 2 : 0)}`;
+
+        const xTag = drawTag(ctx, Math.min(hx + 6, m.left + w - 110), m.top + h - 24, xLabel, {
+          border: "rgba(34, 211, 238, 0.4)",
+          fg: "#e0f2fe",
+        });
+        const yTagX = Math.min(Math.max(m.left + 4, hx + 8), m.left + w - 120);
+        const yTagY = Math.max(m.top + 2, hy - 26);
+        drawTag(ctx, yTagX, yTagY, yLabel, {
+          border: "rgba(250, 204, 21, 0.4)",
+          fg: "#fef3c7",
+        });
+      }
     }
   }
 
@@ -514,8 +647,12 @@
     els.satA.textContent = state.satFit ? prettyNum(state.satFit.a) : "-";
     els.umiA.textContent = state.umiFit ? prettyNum(state.umiFit.a) : "-";
     els.umiB.textContent = state.umiFit ? prettyNum(state.umiFit.b) : "-";
-    if (els.lowerFitLabelA) els.lowerFitLabelA.textContent = `${lowerMeta.singular} half-saturation \`a\``;
-    if (els.lowerFitLabelB) els.lowerFitLabelB.textContent = `${lowerMeta.singular} max \`b\``;
+    if (els.lowerFitLabelA) {
+      els.lowerFitLabelA.textContent = `${lowerMeta.plural} HalfSat Point (reads/cell)`;
+    }
+    if (els.lowerFitLabelB) {
+      els.lowerFitLabelB.textContent = `${lowerMeta.plural} Max (fitted)`;
+    }
     if (els.lowerPlotTitle) els.lowerPlotTitle.textContent = lowerMeta.panelTitle;
     if (els.metricTargetLabel) els.metricTargetLabel.textContent = `${lowerMeta.plural} per cell`;
 
@@ -527,6 +664,10 @@
     }
     if (notes.length === 0) notes.push("Fits computed successfully.");
     els.fitNotes.textContent = notes.join(" ");
+
+    const halfSatReads = state.satFit ? state.satFit.readsForTargetSat(0.5) : null;
+    const halfSatLowerY =
+      state.umiFit && Number.isFinite(halfSatReads) ? state.umiFit.predict(halfSatReads) : null;
 
     drawPlot(els.satCanvas, {
       x: state.satSeries?.x,
@@ -541,6 +682,16 @@
       referenceDigits: 2,
       yBufferFactor: 1.08,
       referenceLineColor: "rgba(248, 250, 252, 0.45)",
+      hoverX: state.satHoverX,
+      xZoomScale: state.satXZoomScale,
+      hoverLineColor: "rgba(244, 114, 182, 0.6)",
+      hoverPointColor: "#fdf2f8",
+      hoverYFormatter: (y) => `Sat: ${prettyNum(y * 100, 1)}%`,
+      fixedCrosshairX: halfSatReads,
+      fixedCrosshairY: 0.5,
+      fixedCrosshairLabel: "HalfSat",
+      fixedCrosshairLineColor: "rgba(34, 211, 238, 0.28)",
+      fixedCrosshairPointColor: "rgba(34, 211, 238, 0.85)",
       pointColor: "#22d3ee",
       lineColor: "#f472b6",
     });
@@ -560,9 +711,33 @@
       referenceLabelPrefix: "max",
       yBufferFactor: 1.08,
       referenceLineColor: "rgba(250, 204, 21, 0.55)",
+      hoverX: state.umiHoverX,
+      xZoomScale: state.umiXZoomScale,
+      hoverLineColor: "rgba(250, 204, 21, 0.6)",
+      hoverPointColor: "#fef3c7",
+      hoverYFormatter: (y) =>
+        `${state.lowerMetricKind === "gene" ? "genes/cell" : "UMIs/cell"}: ${prettyNum(y)}`,
+      fixedCrosshairX: halfSatReads,
+      fixedCrosshairY: halfSatLowerY,
+      fixedCrosshairLabel: "HalfSat",
+      fixedCrosshairLineColor: "rgba(250, 204, 21, 0.22)",
+      fixedCrosshairPointColor: "rgba(250, 204, 21, 0.8)",
       pointColor: "#a78bfa",
       lineColor: "#facc15",
     });
+
+    const satXMax = getPlotXMax(state.satSeries, { xZoomScale: state.satXZoomScale });
+    const umiXMax = getPlotXMax(state.umiSeries, { xZoomScale: state.umiXZoomScale });
+    if (els.satZoomLabel) {
+      els.satZoomLabel.textContent = Number.isFinite(satXMax)
+        ? `Range ${state.satXZoomScale.toFixed(1)}x (to ${prettyNum(satXMax)})`
+        : `Range ${state.satXZoomScale.toFixed(1)}x`;
+    }
+    if (els.umiZoomLabel) {
+      els.umiZoomLabel.textContent = Number.isFinite(umiXMax)
+        ? `Range ${state.umiXZoomScale.toFixed(1)}x (to ${prettyNum(umiXMax)})`
+        : `Range ${state.umiXZoomScale.toFixed(1)}x`;
+    }
   }
 
   function setFromParsed(parsed) {
@@ -663,6 +838,78 @@
     if (!file) return;
     handleFile(file);
   });
+
+  function attachHover(canvas, getSeries, stateKey, getXZoomScale) {
+    canvas.addEventListener("mousemove", (e) => {
+      const series = getSeries();
+      if (!series || !series.x || series.x.length < 2) return;
+      const rect = canvas.getBoundingClientRect();
+      const xPx = e.clientX - rect.left;
+      const width = canvas.clientWidth || rect.width;
+      const m = PLOT_MARGINS;
+      const w = width - m.left - m.right;
+      if (w <= 0) return;
+      if (xPx < m.left || xPx > m.left + w) {
+        if (state[stateKey] !== null) {
+          state[stateKey] = null;
+          render();
+        }
+        return;
+      }
+      const xMax = getPlotXMax(series, { xZoomScale: getXZoomScale ? getXZoomScale() : 1 });
+      if (!Number.isFinite(xMax) || xMax <= 0) return;
+      const hoverX = ((xPx - m.left) / w) * xMax;
+      state[stateKey] = hoverX;
+      render();
+    });
+    canvas.addEventListener("mouseleave", () => {
+      if (state[stateKey] !== null) {
+        state[stateKey] = null;
+        render();
+      }
+    });
+  }
+
+  function clampZoom(v) {
+    return Math.min(12, Math.max(0.5, Math.round(v * 10) / 10));
+  }
+
+  function bindZoomControls(prefix, stateKey) {
+    const btnOut = els[`${prefix}ZoomOut`];
+    const btnIn = els[`${prefix}ZoomIn`];
+    const btnReset = els[`${prefix}ZoomReset`];
+
+    const setZoom = (next) => {
+      state[stateKey] = clampZoom(next);
+      render();
+    };
+
+    if (btnOut) btnOut.addEventListener("click", () => setZoom(state[stateKey] / 1.25));
+    if (btnIn) btnIn.addEventListener("click", () => setZoom(state[stateKey] * 1.25));
+    if (btnReset) btnReset.addEventListener("click", () => setZoom(1));
+  }
+
+  function bindWheelZoom(canvas, stateKey) {
+    if (!canvas) return;
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        const direction = e.deltaY < 0 ? 1 / 1.12 : 1.12;
+        state[stateKey] = clampZoom(state[stateKey] * direction);
+        render();
+      },
+      { passive: false }
+    );
+  }
+
+  bindZoomControls("sat", "satXZoomScale");
+  bindZoomControls("umi", "umiXZoomScale");
+  bindWheelZoom(els.satCanvas, "satXZoomScale");
+  bindWheelZoom(els.umiCanvas, "umiXZoomScale");
+
+  attachHover(els.satCanvas, () => state.satSeries, "satHoverX", () => state.satXZoomScale);
+  attachHover(els.umiCanvas, () => state.umiSeries, "umiHoverX", () => state.umiXZoomScale);
 
   els.runPredictions.addEventListener("click", runPredictions);
   window.addEventListener("resize", render);

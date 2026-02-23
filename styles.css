@@ -184,6 +184,37 @@ input[type="file"] {
   background: #0b1220;
 }
 
+.plot-zoom {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.zoom-btn {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.zoom-btn.ghost {
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.zoom-label {
+  color: #a5b4fc;
+  font-size: 0.86rem;
+  white-space: nowrap;
+  justify-self: end;
+}
+
 .controls label {
   display: flex;
   flex-direction: column;
@@ -216,6 +247,13 @@ input[type="file"] {
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 10px 22px rgba(236, 72, 153, 0.22);
+}
+
+.action.secondary {
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: none;
 }
 
 .results {

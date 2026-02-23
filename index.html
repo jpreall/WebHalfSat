@@ -79,9 +79,9 @@
         <article class="panel">
           <h2>Model Fit</h2>
           <dl class="meta">
-            <div><dt>Sat half-saturation `a`</dt><dd id="satA">-</dd></div>
-            <div><dt id="lowerFitLabelA">UMI half-saturation `a`</dt><dd id="umiA">-</dd></div>
-            <div><dt id="lowerFitLabelB">UMI max `b`</dt><dd id="umiB">-</dd></div>
+            <div><dt>Sequencing HalfSat Point (reads/cell)</dt><dd id="satA">-</dd></div>
+            <div><dt id="lowerFitLabelA">UMIs HalfSat Point (reads/cell)</dt><dd id="umiA">-</dd></div>
+            <div><dt id="lowerFitLabelB">UMIs Max (fitted)</dt><dd id="umiB">-</dd></div>
           </dl>
           <p id="fitNotes" class="note">Load a file to compute fit parameters.</p>
         </article>
@@ -91,10 +91,22 @@
         <article class="panel">
           <h2>Sequencing Saturation</h2>
           <canvas id="satCanvas" class="plot" width="640" height="380"></canvas>
+          <div class="plot-zoom">
+            <button id="satZoomOut" class="zoom-btn" type="button" aria-label="Zoom in saturation plot x-range">-</button>
+            <button id="satZoomIn" class="zoom-btn" type="button" aria-label="Zoom out saturation plot x-range">+</button>
+            <button id="satZoomReset" class="zoom-btn ghost" type="button">Reset</button>
+            <span id="satZoomLabel" class="zoom-label">Range 1.0x</span>
+          </div>
         </article>
         <article class="panel">
           <h2 id="lowerPlotTitle">UMIs vs Reads</h2>
           <canvas id="umiCanvas" class="plot" width="640" height="380"></canvas>
+          <div class="plot-zoom">
+            <button id="umiZoomOut" class="zoom-btn" type="button" aria-label="Zoom in lower plot x-range">-</button>
+            <button id="umiZoomIn" class="zoom-btn" type="button" aria-label="Zoom out lower plot x-range">+</button>
+            <button id="umiZoomReset" class="zoom-btn ghost" type="button">Reset</button>
+            <span id="umiZoomLabel" class="zoom-label">Range 1.0x</span>
+          </div>
         </article>
       </section>
 
